@@ -9,8 +9,10 @@ class Encoder(M.Model):
 		# joints: [N, J, 3]
 
 		# print(pts.dtype, viewdir.dtype, joints.dtype, R.dtype)
-
-		diff = pts.unsqueeze(-2) - joints.unsqueeze(1).unsqueeze(1)														# [N, ray, sample, J, 3]
+		joints_ = joints.unsqueeze(1).unsqueeze(1)	
+		pts_ = pts.unsqueeze(-2)	
+		# print(pts_.shape, viewdir.shape, joints_.shape, R.shape)
+		diff = pts_ - joints_																							# [N, ray, sample, J, 3]
 		# Original rotation: Local to world 
 		# Here: Reverse the rotation matrix from 'ba' to 'ab', means world to local
 		diff_local = torch.einsum('nrsja,njab->nrsjb', diff, R)

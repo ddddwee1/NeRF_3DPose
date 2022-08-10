@@ -5,51 +5,52 @@ DATA:
   dataset_path: '../datasets/'
   focal: 10000
   img_size: 1000
-  n_rays_per_image: 16
-  bsize: 64
+  # n_rays_per_image: 16
+  sample_patch_size: 32
+  bsize: 2
   max_iter: 400000
 POSEOPT:
-  lr: 0.001
-  update_iter: 1
+  lr: 0.0005
+  update_iter: 20
   use_rot6d: True
 MODEL:
   n_importance: 64
   n_samples: 64
-  lr: 0.0001
+  lr: 0.0005
 LOSS:
   coarse_weight_entropy: 0.0000
   fine_weight_entropy: 0.000
 EMBED:
-  tau_update_interval: 20000
+  tau_update_interval: 25000
   PTS:
-    n_freqs: 8
-    n_joints: 24
-    init_scale_factor: 0.0
-    cutoff_dist: 0.25
-    init_tau: 20.0
-    max_tau: 2000.0
-    tau_amplifier: 1.5
-  DIST:
-    n_freqs: 0
+    n_freqs: 6
     n_joints: 24
     init_scale_factor: 0.0
     cutoff_dist: 0.0
     init_tau: 20.0
     max_tau: 2000.0
-    tau_amplifier: 1.5
-  VIEW:
-    n_freqs: 5
+    tau_amplifier: 1.25
+  DIST:
+    n_freqs: 8
     n_joints: 24
     init_scale_factor: 0.0
-    cutoff_dist: 0.25
+    cutoff_dist: 0.5
     init_tau: 20.0
     max_tau: 2000.0
-    tau_amplifier: 1.5
+    tau_amplifier: 1.25
+  VIEW:
+    n_freqs: 6
+    n_joints: 24
+    init_scale_factor: 0.0
+    cutoff_dist: 0.5
+    init_tau: 20.0
+    max_tau: 2000.0
+    tau_amplifier: 1.25
 TRAIN:
-  noise_std: 0.002
-  noise_decay: 20000
+  noise_std: 1
+  noise_decay: 200000
   n_iter_decay: [200000, 300000]
-  decay_gamma: -0.00001
+  decay_gamma: -0.000006
   decay_interval: 1000
   save_interval: 10000
   warmup_nerf_iter: 10000

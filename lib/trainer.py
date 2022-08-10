@@ -4,7 +4,7 @@ import random
 import numpy as np 
 import TorchSUL.Model as M
 
-from lib import encoder, embedder
+from lib import encoder, embedder, vggloss
 from lib.models import poseopt, nerf
 from lib.utils import nerf_utils
 
@@ -60,6 +60,7 @@ class Trainer():
         self.pose_opt_layer = poseopt.PoseOptim(cfg, pose_metadata)
         num_pts = pose_metadata['rest_joints'].shape[-2]
         self.nerf_dp = NeRF_DP(cfg, num_pts)
+        self.VGG = vggloss.VGGLoss()
 
     def initialize(self):
         self.pose_saver = M.Saver(self.pose_opt_layer)
@@ -71,8 +72,12 @@ class Trainer():
         self.nerf_dp = torch.nn.DataParallel(self.nerf_dp)
         self.nerf_dp.cuda()
 
-        self.pose_optimizer = torch.optim.SGD(self.pose_opt_layer.parameters(), lr=self.cfg.POSEOPT.lr)
+        self.pose_optimizer = torch.optim.Adam(self.pose_opt_layer.parameters(), lr=self.cfg.POSEOPT.lr)
         self.net_optimizer = torch.optim.Adam(self.nerf_dp.parameters(), lr=self.cfg.MODEL.lr)
+        
+        x = torch.zeros(2, 3, 512, 512)
+        self.VGG(x, x)
+        self.VGG.cuda()
 
     def save(self, global_step):
         stamp = random.randint(1, 100000)
@@ -85,19 +90,39 @@ class Trainer():
         rgb_coarse, rgb_fine, weight_coarse, weight_fine = self.run_batch(batch, global_step)
         loss_coarse, loss_fine = self.img_loss(batch, rgb_coarse, rgb_fine)
         loss_weight_coarse, loss_weight_fine = self.entropy_loss(weight_coarse, weight_fine)
+        loss_vgg_coarse, loss_vgg_fine = self.vgg_loss(batch, rgb_coarse, rgb_fine)
         if global_step>self.cfg.TRAIN.entropy_start_iter:
-            self.apply_loss([[loss_coarse, 1.0], [loss_fine, 1.0], [loss_weight_coarse, self.cfg.LOSS.coarse_weight_entropy], [loss_weight_fine, self.cfg.LOSS.fine_weight_entropy]], global_step)
+            self.apply_loss([[loss_coarse, 1.0], \
+                            [loss_fine, 1.0], \
+                            [loss_weight_coarse, self.cfg.LOSS.coarse_weight_entropy], \
+                            [loss_weight_fine, self.cfg.LOSS.fine_weight_entropy],\
+                            [loss_vgg_coarse, self.cfg.LOSS.weight_vgg], \
+                            [loss_vgg_fine, self.cfg.LOSS.weight_vgg]], global_step)
         else:
-            self.apply_loss([[loss_coarse, 1.0], [loss_fine, 1.0], [loss_weight_coarse, 0.0], [loss_weight_fine, 0.0]], global_step)
+            self.apply_loss([[loss_coarse, 1.0], [loss_fine, 1.0], [loss_weight_coarse, 0.0], [loss_weight_fine, 0.0], [loss_vgg_coarse, 0.0], [loss_vgg_fine, 0.0]], global_step)
         if global_step%self.cfg.EMBED.tau_update_interval==0 and global_step>0:
             self.nerf_dp.module.update_tau()
-        return loss_coarse, loss_fine, loss_weight_coarse, loss_weight_fine
+        return loss_coarse, loss_fine, loss_weight_coarse, loss_weight_fine, loss_vgg_coarse, loss_vgg_fine
+
+    def vgg_loss(self, batch, rgb_coarse, rgb_fine):
+        psize = self.cfg.DATA.sample_patch_size
+        rgb_coarse = rgb_coarse.reshape(-1, psize, psize, 3)
+        rgb_coarse = torch.permute(rgb_coarse, [0, 3, 1, 2])
+        rgb_fine = rgb_fine.reshape(-1, psize, psize, 3)
+        rgb_fine = torch.permute(rgb_fine, [0, 3, 1, 2])
+        rgb = batch['RGB'].to(rgb_coarse.device).reshape(-1, psize, psize, 3)
+        rgb = torch.permute(rgb, [0, 3, 1, 2])
+        mask = batch['training_mask'].to(rgb_coarse.device).reshape(-1, 1, psize, psize)
+        loss_coarse = self.VGG(rgb_coarse*mask, rgb*mask)
+        loss_fine = self.VGG(rgb_fine*mask, rgb*mask)
+        return loss_coarse, loss_fine
 
     def img_loss(self, batch, rgb_coarse, rgb_fine):
         # print(rgb_coarse.max(), rgb_coarse.min(), rgb_fine.max(), rgb_fine.min())
         rgb = batch['RGB'].to(rgb_coarse.device)
-        loss_coarse = torch.abs(rgb_coarse - rgb).mean()
-        loss_fine = torch.abs(rgb_fine - rgb).mean()
+        mask = batch['training_mask'].to(rgb_coarse.device).unsqueeze(-1)
+        loss_coarse = torch.pow(rgb_coarse*mask - rgb*mask, 2).mean()
+        loss_fine = torch.pow(rgb_fine*mask - rgb*mask, 2).mean()
         return loss_coarse, loss_fine
 
     def _entropy(self, x):
@@ -154,16 +179,9 @@ class Trainer():
 
         self.net_optimizer.step()
 
-        if global_step==self.cfg.TRAIN.warmup_nerf_iter:
+        if global_step%self.cfg.POSEOPT.update_iter==0 and global_step>0:
+            self.pose_optimizer.step()
             self.pose_optimizer.zero_grad()
-            print('Start optimizing poses...')
-        if global_step>self.cfg.TRAIN.warmup_nerf_iter:
-            if global_step%self.cfg.POSEOPT.update_iter==0:
-                self.pose_optimizer.step()
-                self.pose_optimizer.zero_grad()
-        
-        # print(self.net_fine.alpha_fc.fc.weight.grad[0])
-        # print(self.pose_opt_layer.poses.grad.max())
 
     def run_batch(self, batch, global_step):
         joints, R, near, far = self.pose_opt_layer(batch['idx'])

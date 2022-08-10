@@ -16,3 +16,7 @@
 
 08-01:
     Debug: Reverse the rotation matrix in encoding function
+
+08-10:
+    Add patch generation for each image, instead of random sampling
+    Add VGG loss for image patch
