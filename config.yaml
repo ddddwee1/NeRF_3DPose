@@ -1,0 +1,58 @@
+EXPERIMENT:
+  name: 'exp1'
+DATA:
+  smpl_path: './data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
+  dataset_path: '../datasets/'
+  focal: 10000
+  img_size: 1000
+  n_rays_per_image: 16
+  bsize: 64
+  max_iter: 400000
+POSEOPT:
+  lr: 0.001
+  update_iter: 1
+  use_rot6d: True
+MODEL:
+  n_importance: 64
+  n_samples: 64
+  lr: 0.0001
+LOSS:
+  coarse_weight_entropy: 0.0000
+  fine_weight_entropy: 0.000
+EMBED:
+  tau_update_interval: 20000
+  PTS:
+    n_freqs: 8
+    n_joints: 24
+    init_scale_factor: 0.0
+    cutoff_dist: 0.25
+    init_tau: 20.0
+    max_tau: 2000.0
+    tau_amplifier: 1.5
+  DIST:
+    n_freqs: 0
+    n_joints: 24
+    init_scale_factor: 0.0
+    cutoff_dist: 0.0
+    init_tau: 20.0
+    max_tau: 2000.0
+    tau_amplifier: 1.5
+  VIEW:
+    n_freqs: 5
+    n_joints: 24
+    init_scale_factor: 0.0
+    cutoff_dist: 0.25
+    init_tau: 20.0
+    max_tau: 2000.0
+    tau_amplifier: 1.5
+TRAIN:
+  noise_std: 0.002
+  noise_decay: 20000
+  n_iter_decay: [200000, 300000]
+  decay_gamma: -0.00001
+  decay_interval: 1000
+  save_interval: 10000
+  warmup_nerf_iter: 10000
+  entropy_start_iter: 50000
+TEST:
+  chunk: 512

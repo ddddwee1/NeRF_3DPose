@@ -1,0 +1,18 @@
+07-25:
+    - Now kinematics will produce near & far accordingly, instead of using near & far provided in dataset
+    - Add visualization codes for rendering
+    - Add pose update interval & nerf warm-up iterations
+
+07-26:
+    - Add option to use rot6d
+
+07-27:
+    - Add cutoff embedder and a learnable scalar for each joint
+    - Use entropy loss to sharpen the opacity
+    - Idea: Train a vertices transformation network -> adjust shape accordingly
+
+07-30: 
+    Plot depth of each pixel (The maximum weight location & softmax weight of each location)
+
+08-01:
+    Debug: Reverse the rotation matrix in encoding function
