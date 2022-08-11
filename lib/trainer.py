@@ -22,7 +22,7 @@ class NeRF_DP(M.Model):
         dumb_u = self.embedder_pts(torch.ones(1, num_pts, 3), torch.ones(1, num_pts, 1))
         dumb_n = self.embedder_dist(torch.ones(1, num_pts, 1), torch.ones(1, num_pts, 1))
         dumb_v = self.embedder_view(torch.ones(1, num_pts, 3), torch.ones(1, num_pts, 1))
-        print('EMBEDDED:', dumb_u.shape, dumb_n.shape, dumb_v.shape)
+        print('EMBEDDED:', 'PTS', dumb_u.shape, 'NORM', dumb_n.shape, 'VIEW', dumb_v.shape)
         pose_embed = torch.cat([dumb_u, dumb_n], dim=-1)
         self.net_coarse(pose_embed, dumb_v)
         self.net_fine(pose_embed, dumb_v)
@@ -75,7 +75,7 @@ class Trainer():
         self.pose_optimizer = torch.optim.Adam(self.pose_opt_layer.parameters(), lr=self.cfg.POSEOPT.lr)
         self.net_optimizer = torch.optim.Adam(self.nerf_dp.parameters(), lr=self.cfg.MODEL.lr)
         
-        x = torch.zeros(2, 3, 512, 512)
+        x = torch.zeros(2, 3, 32, 32)
         self.VGG(x, x)
         self.VGG.cuda()
 
@@ -92,20 +92,17 @@ class Trainer():
         loss_weight_coarse, loss_weight_fine = self.entropy_loss(weight_coarse, weight_fine)
         loss_vgg_coarse, loss_vgg_fine = self.vgg_loss(batch, rgb_coarse, rgb_fine)
         if global_step>self.cfg.TRAIN.entropy_start_iter:
-            self.apply_loss([[loss_coarse, 1.0], \
-                            [loss_fine, 1.0], \
-                            [loss_weight_coarse, self.cfg.LOSS.coarse_weight_entropy], \
-                            [loss_weight_fine, self.cfg.LOSS.fine_weight_entropy],\
-                            [loss_vgg_coarse, self.cfg.LOSS.weight_vgg], \
-                            [loss_vgg_fine, self.cfg.LOSS.weight_vgg]], global_step)
+            self.apply_loss([[loss_coarse, 1.0], [loss_fine, 1.0], \
+                            [loss_weight_coarse, self.cfg.LOSS.coarse_weight_entropy], [loss_weight_fine, self.cfg.LOSS.fine_weight_entropy],\
+                            [loss_vgg_coarse, self.cfg.LOSS.weight_vgg], [loss_vgg_fine, self.cfg.LOSS.weight_vgg]], global_step)
         else:
             self.apply_loss([[loss_coarse, 1.0], [loss_fine, 1.0], [loss_weight_coarse, 0.0], [loss_weight_fine, 0.0], [loss_vgg_coarse, 0.0], [loss_vgg_fine, 0.0]], global_step)
-        if global_step%self.cfg.EMBED.tau_update_interval==0 and global_step>0:
+        if global_step%self.cfg.EMBED.tau_update_interval==0 and global_step>0 and global_step>self.cfg.TRAIN.warmup_nerf_iter:
             self.nerf_dp.module.update_tau()
         return loss_coarse, loss_fine, loss_weight_coarse, loss_weight_fine, loss_vgg_coarse, loss_vgg_fine
-
+    
     def vgg_loss(self, batch, rgb_coarse, rgb_fine):
-        psize = self.cfg.DATA.sample_patch_size
+        psize = self.cfg.DATA.patch_size
         rgb_coarse = rgb_coarse.reshape(-1, psize, psize, 3)
         rgb_coarse = torch.permute(rgb_coarse, [0, 3, 1, 2])
         rgb_fine = rgb_fine.reshape(-1, psize, psize, 3)
@@ -121,8 +118,8 @@ class Trainer():
         # print(rgb_coarse.max(), rgb_coarse.min(), rgb_fine.max(), rgb_fine.min())
         rgb = batch['RGB'].to(rgb_coarse.device)
         mask = batch['training_mask'].to(rgb_coarse.device).unsqueeze(-1)
-        loss_coarse = torch.pow(rgb_coarse*mask - rgb*mask, 2).mean()
-        loss_fine = torch.pow(rgb_fine*mask - rgb*mask, 2).mean()
+        loss_coarse = torch.abs(rgb_coarse*mask - rgb*mask).sum() / mask.sum() / 3
+        loss_fine = torch.abs(rgb_fine*mask - rgb*mask).sum() / mask.sum() / 3
         return loss_coarse, loss_fine
 
     def _entropy(self, x):
@@ -182,6 +179,9 @@ class Trainer():
         if global_step%self.cfg.POSEOPT.update_iter==0 and global_step>0:
             self.pose_optimizer.step()
             self.pose_optimizer.zero_grad()
+        
+        # print(self.net_fine.alpha_fc.fc.weight.grad[0])
+        # print(self.pose_opt_layer.poses.grad.max())
 
     def run_batch(self, batch, global_step):
         joints, R, near, far = self.pose_opt_layer(batch['idx'])
@@ -190,14 +190,16 @@ class Trainer():
         # far = batch['far'].cuda()
         rays_o = batch['rays_o'].cuda()
         rays_d = batch['rays_d'].cuda()
-        noise_std = self.cfg.TRAIN.noise_std * (self.cfg.TRAIN.noise_decay - global_step) / self.cfg.TRAIN.noise_decay
+        noise_std = self.cfg.TRAIN.noise_std
+        if self.cfg.TRAIN.noise_decay>0:
+            noise_std = self.cfg.TRAIN.noise_std * (self.cfg.TRAIN.noise_decay - global_step) / self.cfg.TRAIN.noise_decay
         if noise_std<0:
             noise_std = 0.0
-        # if global_step%1000==0:
-        #     print('noise_std', noise_std)
+        if global_step%10000==0:
+            print('noise_std', noise_std)
 
         pts_coarse, z_vals_coarse = nerf_utils.sample_pts(rays_o, rays_d, near, far, self.cfg.MODEL.n_samples, perturb=True)
-        rgb_coarse, rgb_fine, weight_coarse, weight_fine, _, _ = self.nerf_dp(pts_coarse, rays_o, rays_d, joints, R, z_vals_coarse, noise_std)
+        rgb_coarse, rgb_fine, weight_coarse, weight_fine, _, _ = self.nerf_dp(pts_coarse, rays_o, rays_d, joints, R, z_vals_coarse, noise_std, determinate=True)
         return rgb_coarse, rgb_fine, weight_coarse, weight_fine
 
     def evaluate(self, data):

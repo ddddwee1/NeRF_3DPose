@@ -6,9 +6,9 @@ import random
 import numpy as np 
 
 from lib.utils import camera
-from torch.utils.data import Dataset, DataLoader, Sampler
+from torch.utils.data import Dataset, DataLoader, Sampler, ConcatDataset
 
-class SPMLDataset(Dataset):
+class SPMLDataset(object):
     def __init__(self, cfg, is_training):
         super(SPMLDataset, self).__init__()
         self.cfg = cfg
@@ -27,15 +27,15 @@ class SPMLDataset(Dataset):
     def __getitem__(self, idx0):
         idx = self.idx_sel[idx0]
         meta = self.meta[idx]
-        # pose = meta['pose']
-        # rest_joints = meta['rest_joints']
-        # translation = meta['translation']
+        pose = meta['pose']
+        rest_joints = meta['rest_joints']
+        translation = meta['translation']
         near = meta['near'].astype(np.float32)
         far = meta['far'].astype(np.float32)
 
         img = cv2.imread(os.path.join(self.cfg.DATA.dataset_path, 'images', '%06d.png'%idx))
         mask = cv2.imread(os.path.join(self.cfg.DATA.dataset_path, 'masks', '%06d.png'%idx), cv2.IMREAD_GRAYSCALE)
-        rgb, rays_o, rays_d, sampled_idx = self._select_pixel(img, mask)   # note that for training, the 4th argument is training mask
+        rgb, rays_o, rays_d, sampled_idx = self._select_pixel(img, mask)   # TODO: Visualize them
         if self.is_training:
             return {'RGB':rgb, 'rays_o':rays_o, 'rays_d':rays_d, 'near':near, 'far':far, 'idx':idx0, 'training_mask':sampled_idx}
         else:
@@ -43,28 +43,20 @@ class SPMLDataset(Dataset):
 
     def _select_pixel(self, img, mask):
         if self.is_training:
-            psize = self.cfg.DATA.sample_patch_size
+            psize = self.cfg.DATA.patch_size
             valid_idxy, valid_idxx = np.where(mask==255)
-            minx, maxx = np.min(valid_idxx), np.max(valid_idxx)
-            miny, maxy = np.min(valid_idxy), np.max(valid_idxy)
-            startx = random.randint(minx, maxx-psize)
-            starty = random.randint(miny, maxy-psize)
+            idx = np.random.choice(valid_idxy.shape[0], size=[1], replace=False)[0]
+            cx = valid_idxx[idx]
+            cy = valid_idxy[idx]
+            cx = np.clip(cx-psize//2, 0, mask.shape[1]-psize)
+            cy = np.clip(cy-psize//2, 0, mask.shape[0]-psize)
             
-            mask = np.float32(mask) / 255
-            sampled_idx = mask[starty:starty+psize, startx:startx+psize]
-            sampled_idx[sampled_idx<1] = 0
-            sampled_idx = sampled_idx.reshape(-1)
+            rgb = np.float32(img[cy:cy+psize, cx:cx+psize, :]).reshape([-1, 3]) / 255
+            sampled_idx = np.float32(mask[cy:cy+psize, cx:cx+psize]).reshape([-1]) / 255
+            rays_o = self.rays_o[cy:cy+psize, cx:cx+psize].reshape([-1, 3])
+            rays_d = self.rays_d[cy:cy+psize, cx:cx+psize].reshape([-1, 3])
             
-            rgb = img[starty:starty+psize, startx:startx+psize, :]
-            rgb = np.float32(rgb) / 255
-            rgb = rgb.reshape(-1, 3)
-            
-            rays_o = self.rays_o[starty:starty+psize, startx:startx+psize, :]
-            rays_o = rays_o.reshape(-1, 3)
-            
-            rays_d = self.rays_d[starty:starty+psize, startx:startx+psize, :]
-            rays_d = rays_d.reshape(-1, 3)
-        else:
+        else: 
             mask = mask.reshape([self.cfg.DATA.img_size * self.cfg.DATA.img_size])
             valid_idx, = np.where(mask==255)
             sampled_idx = valid_idx
@@ -72,6 +64,8 @@ class SPMLDataset(Dataset):
             rgb = img[sampled_idx]
             rays_o = self.rays_o.reshape([-1, 3])[sampled_idx]
             rays_d = self.rays_d.reshape([-1, 3])[sampled_idx]
+            # rays_o = self.rays_o[sampled_idx]
+            # rays_d = self.rays_d[sampled_idx]
             rgb = np.float32(rgb) / 255
         return rgb, rays_o, rays_d, sampled_idx
 

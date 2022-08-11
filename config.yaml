@@ -2,11 +2,11 @@ EXPERIMENT:
   name: 'exp1'
 DATA:
   smpl_path: './data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
-  dataset_path: '../datasets/'
+  dataset_path: '../datasets_s6/'
   focal: 10000
   img_size: 1000
-  # n_rays_per_image: 16
-  sample_patch_size: 32
+  n_rays_per_image: 16
+  patch_size: 32
   bsize: 2
   max_iter: 400000
 POSEOPT:
@@ -19,7 +19,8 @@ MODEL:
   lr: 0.0005
 LOSS:
   coarse_weight_entropy: 0.0000
-  fine_weight_entropy: 0.000
+  fine_weight_entropy: 0.0000
+  weight_vgg: 0.001
 EMBED:
   tau_update_interval: 25000
   PTS:

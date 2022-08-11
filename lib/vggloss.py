@@ -10,7 +10,7 @@ class MultiOutput(M.Model):
         self.net = torchvision.models.vgg16(pretrained=True).float()
         for param in self.net.parameters():
             param.requires_grad = False
-        print(self.net)
+        # print(self.net)
         self.net = list(self.net.children())[0]
         self.submodules = list(self.net.children())
 

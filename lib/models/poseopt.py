@@ -35,7 +35,7 @@ class PoseOptim(M.Model):
             far = torch.amax(dep, dim=1)		# [N]
             center = (near + far) / 2
             width = (far - near)
-            near = center - width * 1.2
-            far = center + width * 1.2
+            near = center - width - 0.5
+            far = center + width + 0.5
 
         return joints, R, near, far
